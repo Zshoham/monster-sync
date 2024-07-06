@@ -1,0 +1,18 @@
+[package]
+name = "monster-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sysinfo = "0.30"
+notify = "6.1"
+chrono = "0.4"
+daemonize = "0.5"
+glob = "0.3"
+anyhow = "1.0"
+config = "0.14"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+dirs = "5.0.1"
+
+
