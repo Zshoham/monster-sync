@@ -8,6 +8,7 @@ use std::sync::mpsc::channel;
 use crate::SyncConfig;
 
 pub struct SyncHandle<'a> {
+    pub repo_name: String,
     pub pid_file: PathBuf,
     pub local_path: PathBuf,
     pub remote_path: PathBuf,
@@ -22,6 +23,7 @@ impl<'a> SyncHandle<'a> {
             .with_extension(config.pid_file_extention.clone());
 
         SyncHandle {
+            repo_name: repo_name.into(),
             pid_file,
             local_path: config.base_local_path.join(repo_name),
             remote_path: config.base_remote_path.join(repo_name),

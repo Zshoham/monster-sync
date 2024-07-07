@@ -37,7 +37,7 @@ enum Commands {
     List,
 }
 
-fn start_sync(repo_name: &str, handle: SyncHandle) -> Result<()> {
+fn start_sync(handle: SyncHandle) -> Result<()> {
     anyhow::ensure!(
         &handle.local_path.exists(),
         "Local repository {} does not exist.",
@@ -46,7 +46,7 @@ fn start_sync(repo_name: &str, handle: SyncHandle) -> Result<()> {
     anyhow::ensure!(
         !&handle.pid_file.exists(),
         "Sync is already running for {}.",
-        repo_name
+        &handle.repo_name
     );
 
     let daemonize = Daemonize::new()
@@ -66,11 +66,9 @@ fn start_sync(repo_name: &str, handle: SyncHandle) -> Result<()> {
     .context("Failed to create daemon")
 }
 
-fn stop_sync(repo_name: &str) -> Result<()> {
-    let pid_file = format!("/tmp/repo_sync_{}.pid", repo_name);
-
-    let pid_str = std::fs::read_to_string(&pid_file)
-        .context(format!("Sync is not running for {}.", repo_name))?;
+fn stop_sync(handle: SyncHandle) -> Result<()> {
+    let pid_str = std::fs::read_to_string(&handle.pid_file)
+        .context(format!("Sync is not running for {}.", &handle.repo_name))?;
 
     let pid = pid_str
         .trim()
@@ -81,21 +79,19 @@ fn stop_sync(repo_name: &str) -> Result<()> {
 
     if let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) {
         process.kill_with(sysinfo::Signal::Term);
-        println!("Sync stopped for {}. PID was: {}", repo_name, pid);
+        println!("Sync stopped for {}. PID was: {}", &handle.repo_name, pid);
     } else {
         eprintln!("Process {} not found. Cleaning up.", pid);
     }
 
-    std::fs::remove_file(&pid_file).context("Unable to remove PID file")?;
+    std::fs::remove_file(&handle.pid_file).context("Unable to remove PID file")?;
 
     Ok(())
 }
 
-fn status_sync(repo_name: &str) -> Result<()> {
-    let pid_file = format!("/tmp/repo_sync_{}.pid", repo_name);
-
-    let pid = std::fs::read_to_string(&pid_file)
-        .context(format!("Sync is not running for {}.", repo_name))?
+fn status_sync(handle: SyncHandle) -> Result<()> {
+    let pid = std::fs::read_to_string(&handle.pid_file)
+        .context(format!("Sync is not running for {}.", &handle.repo_name))?
         .trim()
         .parse::<u32>()
         .context("Invalid PID in file")?;
@@ -103,25 +99,29 @@ fn status_sync(repo_name: &str) -> Result<()> {
     let system = sysinfo::System::new_all();
 
     if system.process(sysinfo::Pid::from_u32(pid)).is_some() {
-        println!("Sync is running for {}. PID: {}", repo_name, pid);
+        println!("Sync is running for {}. PID: {}", &handle.repo_name, pid);
     } else {
         println!(
             "PID file exists, but sync is not running for {}. Cleaning up.",
-            repo_name
+            &handle.repo_name
         );
-        std::fs::remove_file(&pid_file).context("Unable to remove PID file")?;
+        std::fs::remove_file(&handle.pid_file).context("Unable to remove PID file")?;
     }
 
     Ok(())
 }
 
-fn list_syncs() -> Result<()> {
+fn list_syncs(handle: SyncHandle) -> Result<()> {
     println!("Currently running syncs:");
     println!("------------------------");
     let system = sysinfo::System::new_all();
     let mut found_syncs = false;
 
-    for entry in glob("/tmp/repo_sync_*.pid")? {
+    let pid_file_pattern = handle.pid_file.to_str()
+        .context("Pid file is not a valid UTF-8 string, cannot glob for it.")?
+        .to_owned();
+
+    for entry in glob(&pid_file_pattern)? {
         let path = entry?;
         let file_name = path.file_name().context("Invalid file name")?;
         let repo_name = file_name
@@ -150,6 +150,8 @@ fn list_syncs() -> Result<()> {
 
     Ok(())
 }
+
+
 fn main() -> Result<()> {
     let config = Config::builder()
         .add_source(config::Environment::with_prefix("MSYNC"))
@@ -168,10 +170,14 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::Start { repo_name } => {
-            start_sync(repo_name, sync::SyncHandle::new(&config, repo_name))
+            start_sync(SyncHandle::new(&config, repo_name))
         }
-        Commands::Stop { repo_name } => stop_sync(repo_name),
-        Commands::Status { repo_name } => status_sync(repo_name),
-        Commands::List => list_syncs(),
+        Commands::Stop { repo_name } => {
+            stop_sync(SyncHandle::new(&config, repo_name))
+        }
+        Commands::Status { repo_name } => {
+            status_sync(SyncHandle::new(&config, repo_name))
+        }
+        Commands::List => list_syncs(SyncHandle::new(&config, "*")),
     }
 }
